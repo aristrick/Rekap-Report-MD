@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@400;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+body {
+  @apply bg-base text-ink font-body;
+}
+
+.card {
+  @apply bg-base-panel border border-base-line rounded p-5;
+}
+
+.label-eyebrow {
+  @apply font-mono text-[11px] uppercase tracking-widest text-ink-dim;
+}
+
+.btn-primary {
+  @apply bg-signal-amber text-base font-body font-semibold px-4 py-2 rounded
+         hover:brightness-110 transition disabled:opacity-40 disabled:cursor-not-allowed;
+}
+
+.btn-secondary {
+  @apply bg-transparent border border-base-line text-ink px-4 py-2 rounded
+         hover:border-ink-dim transition;
+}
+
+.input-field {
+  @apply w-full bg-base border border-base-line rounded px-3 py-2 text-ink
+         focus:outline-none focus:ring-2 focus:ring-signal-amber/60 focus:border-signal-amber;
+}
+
+.status-pill {
+  @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-xs font-mono uppercase tracking-wide;
+}
+.status-pending  { @apply bg-base border border-base-line text-ink-dim; }
+.status-submitted{ @apply bg-signal-green/15 text-signal-green border border-signal-green/30; }
+.status-approved { @apply bg-signal-green/15 text-signal-green border border-signal-green/30; }
+.status-late     { @apply bg-signal-red/15 text-signal-red border border-signal-red/30; }
+.status-rejected { @apply bg-signal-red/15 text-signal-red border border-signal-red/30; }

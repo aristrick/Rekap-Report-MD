@@ -12,9 +12,10 @@
 .DS_Store
 *.pem
 
-# env
-.env
-.env*.local
+# env — blokir SEMUA file .env apapun variasinya (termasuk typo, .bak, dsb),
+# kecuali .env.example yang memang isinya cuma placeholder aman untuk di-commit
+.env*
+!.env.example
 
 # vercel
 .vercel

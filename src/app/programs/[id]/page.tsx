@@ -1,13 +1,29 @@
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import Navbar from "@/components/Navbar";
+import AppShell from "@/components/AppShell";
+import ConfirmSubmitButton from "@/components/ConfirmSubmitButton";
 import { NAMA_BULAN } from "@/lib/telegram";
-import { notFound } from "next/navigation";
+import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
+
+async function markStatus(formData: FormData) {
+  "use server";
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const realizationId = formData.get("realization_id") as string;
+  const status = formData.get("status") as string;
+  const programId = formData.get("program_id") as string;
+
+  await supabase.from("program_realizations").update({ status }).eq("id", realizationId);
+  redirect(`/programs/${programId}`);
+}
 
 export default async function ProgramDetailPage({ params }: { params: { id: string } }) {
   const profile = await requireProfile();
   const supabase = createClient();
+  const canManage = profile.role === "mdm" || profile.role === "rmdm";
 
   const { data: program } = await supabase
     .from("programs")
@@ -23,61 +39,108 @@ export default async function ProgramDetailPage({ params }: { params: { id: stri
     .eq("program_id", params.id)
     .order("territories(name)", { ascending: true });
 
+  const territoryIds = (realizations ?? []).map((r: any) => r.territories?.id).filter(Boolean);
+  const { data: assignees } = territoryIds.length
+    ? await supabase
+        .from("profiles")
+        .select("full_name, territory_id")
+        .eq("role", "mds")
+        .in("territory_id", territoryIds)
+    : { data: [] as any[] };
+
+  const assigneeByTerritory: Record<string, string> = {};
+  (assignees ?? []).forEach((a: any) => { assigneeByTerritory[a.territory_id] = a.full_name; });
+
   const isMyTerritory = (territoryId: string) =>
     (profile.role === "mds" || profile.role === "admin" || profile.role === "tl") &&
     profile.territory_id === territoryId;
 
   return (
-    <div>
-      <Navbar profile={profile} />
-      <main className="max-w-4xl mx-auto px-5 py-8">
+    <AppShell profile={profile}>
+      <div className="max-w-5xl mx-auto px-5 py-8">
         <Link href="/programs" className="text-sm text-ink-dim hover:text-ink">← Kembali ke daftar program</Link>
 
-        <div className="mt-4 mb-6">
-          <p className="label-eyebrow mb-1">
-            {NAMA_BULAN[program.period_month - 1]} {program.period_year} · {(program as any).regions?.name}
-          </p>
-          <h1 className="font-display text-2xl font-bold">{program.name}</h1>
-          {program.description && <p className="text-ink-dim text-sm mt-1">{program.description}</p>}
-          {program.letter_file_url && (
-            <a href={program.letter_file_url} target="_blank" className="text-signal-amber text-sm hover:underline mt-2 inline-block">
-              📄 Lihat Surat Program
-            </a>
-          )}
+        <div className="mt-4 mb-2 flex items-center gap-3">
+          <span className="text-2xl">📁</span>
+          <div>
+            <p className="label-eyebrow mb-1">
+              {NAMA_BULAN[program.period_month - 1]} {program.period_year} · {(program as any).regions?.name}
+            </p>
+            <h1 className="font-display text-2xl font-bold">{program.name}</h1>
+          </div>
         </div>
+        {program.description && <p className="text-ink-dim text-sm mb-2">{program.description}</p>}
+        {program.letter_file_url && (
+          <a href={program.letter_file_url} target="_blank" className="text-signal-amber text-sm hover:underline mb-4 inline-block">
+            📄 Lihat Surat Program
+          </a>
+        )}
 
-        <div className="grid gap-3">
-          {(realizations ?? []).map((r: any) => (
-            <div key={r.id} className="card">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">{r.territories?.name}</p>
-                  <p className="text-xs text-ink-dim font-mono">
-                    {r.submitted_at ? `Dikirim ${new Date(r.submitted_at).toLocaleString("id-ID")}` : "Belum dikirim"}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className={`status-pill status-${r.status}`}>{r.status}</span>
-                  {isMyTerritory(r.territories.id) && r.status === "pending" && (
-                    <Link href={`/programs/${program.id}/realization`} className="btn-primary text-sm !py-1.5">
-                      Upload Bukti
-                    </Link>
-                  )}
-                </div>
-              </div>
-              {(r.excel_file_url || r.receipt_pdf_url || (r.activity_photo_urls?.length ?? 0) > 0) && (
-                <div className="flex gap-3 mt-3 pt-3 border-t border-base-line text-xs">
-                  {r.excel_file_url && <a href={r.excel_file_url} target="_blank" className="text-signal-amber hover:underline">Excel</a>}
-                  {r.receipt_pdf_url && <a href={r.receipt_pdf_url} target="_blank" className="text-signal-amber hover:underline">Tanda Terima</a>}
-                  {(r.activity_photo_urls ?? []).map((url: string, i: number) => (
-                    <a key={i} href={url} target="_blank" className="text-signal-amber hover:underline">Foto {i + 1}</a>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
+        <div className="card overflow-x-auto !p-0 mt-4">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-ink-dim border-b border-base-line bg-base">
+                <th className="px-4 py-3 font-normal">Wilayah</th>
+                <th className="px-4 py-3 font-normal">Ditugaskan ke</th>
+                <th className="px-4 py-3 font-normal">Status</th>
+                <th className="px-4 py-3 font-normal">File Penyelesaian</th>
+                <th className="px-4 py-3 font-normal">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-base-line">
+              {(realizations ?? []).map((r: any) => {
+                const hasFiles = r.excel_file_url || r.receipt_pdf_url || (r.activity_photo_urls?.length ?? 0) > 0;
+                return (
+                  <tr key={r.id}>
+                    <td className="px-4 py-3 font-medium">{r.territories?.name}</td>
+                    <td className="px-4 py-3 text-ink-dim">{assigneeByTerritory[r.territories?.id] ?? "-"}</td>
+                    <td className="px-4 py-3">
+                      <span className={`status-pill status-${r.status}`}>{r.status}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-2 text-xs">
+                        {r.excel_file_url && <a href={r.excel_file_url} target="_blank" className="text-signal-amber hover:underline">Excel</a>}
+                        {r.receipt_pdf_url && <a href={r.receipt_pdf_url} target="_blank" className="text-signal-amber hover:underline">Tanda Terima</a>}
+                        {(r.activity_photo_urls ?? []).map((url: string, i: number) => (
+                          <a key={i} href={url} target="_blank" className="text-signal-amber hover:underline">Foto {i + 1}</a>
+                        ))}
+                        {!hasFiles && isMyTerritory(r.territories.id) && r.status === "pending" && (
+                          <Link href={`/programs/${program.id}/realization`} className="btn-primary text-xs !py-1 !px-2.5">
+                            Upload Bukti
+                          </Link>
+                        )}
+                        {!hasFiles && !isMyTerritory(r.territories.id) && <span className="text-ink-dim">—</span>}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {canManage && hasFiles && (
+                        <div className="flex gap-3">
+                          <form action={markStatus}>
+                            <input type="hidden" name="realization_id" value={r.id} />
+                            <input type="hidden" name="program_id" value={program.id} />
+                            <input type="hidden" name="status" value="approved" />
+                            <ConfirmSubmitButton title="Setujui realisasi ini?" className="text-signal-green text-xs hover:underline">
+                              Setujui
+                            </ConfirmSubmitButton>
+                          </form>
+                          <form action={markStatus}>
+                            <input type="hidden" name="realization_id" value={r.id} />
+                            <input type="hidden" name="program_id" value={program.id} />
+                            <input type="hidden" name="status" value="rejected" />
+                            <ConfirmSubmitButton title="Tolak realisasi ini?" variant="danger" className="text-signal-red text-xs hover:underline">
+                              Tolak
+                            </ConfirmSubmitButton>
+                          </form>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-      </main>
-    </div>
+      </div>
+    </AppShell>
   );
 }

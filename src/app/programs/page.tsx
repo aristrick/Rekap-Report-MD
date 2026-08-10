@@ -1,6 +1,6 @@
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import Navbar from "@/components/Navbar";
+import AppShell from "@/components/AppShell";
 import Link from "next/link";
 import { NAMA_BULAN } from "@/lib/telegram";
 
@@ -15,9 +15,8 @@ export default async function ProgramsPage() {
     .order("created_at", { ascending: false });
 
   return (
-    <div>
-      <Navbar profile={profile} />
-      <main className="max-w-6xl mx-auto px-5 py-8">
+    <AppShell profile={profile}>
+      <div className="max-w-6xl mx-auto px-5 py-8">
         <div className="flex items-center justify-between mb-6">
           <div>
             <p className="label-eyebrow mb-1">Program</p>
@@ -51,7 +50,7 @@ export default async function ProgramsPage() {
             );
           })}
         </div>
-      </main>
-    </div>
+            </div>
+    </AppShell>
   );
 }

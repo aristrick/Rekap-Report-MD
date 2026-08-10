@@ -1,6 +1,6 @@
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import Navbar from "@/components/Navbar";
+import AppShell from "@/components/AppShell";
 import Link from "next/link";
 
 export default async function DashboardPage() {
@@ -28,9 +28,8 @@ export default async function DashboardPage() {
   const done = (submissions ?? []).filter((s) => s.status === "submitted" || s.status === "approved").length;
 
   return (
-    <div>
-      <Navbar profile={profile} />
-      <main className="max-w-6xl mx-auto px-5 py-8">
+    <AppShell profile={profile}>
+      <div className="max-w-6xl mx-auto px-5 py-8">
         <div className="mb-8">
           <p className="label-eyebrow mb-1">Ringkasan</p>
           <h1 className="font-display text-2xl font-bold">
@@ -97,7 +96,7 @@ export default async function DashboardPage() {
             ))}
           </div>
         </section>
-      </main>
-    </div>
+            </div>
+    </AppShell>
   );
 }

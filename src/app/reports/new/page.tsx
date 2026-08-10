@@ -1,6 +1,6 @@
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import Navbar from "@/components/Navbar";
+import AppShell from "@/components/AppShell";
 import { redirect } from "next/navigation";
 
 async function createReportTemplate(formData: FormData) {
@@ -39,9 +39,8 @@ export default async function NewReportPage() {
   const now = new Date();
 
   return (
-    <div>
-      <Navbar profile={profile} />
-      <main className="max-w-xl mx-auto px-5 py-8">
+    <AppShell profile={profile}>
+      <div className="max-w-xl mx-auto px-5 py-8">
         <p className="label-eyebrow mb-1">Laporan Bulanan</p>
         <h1 className="font-display text-2xl font-bold mb-6">Buat Laporan Baru</h1>
 
@@ -95,7 +94,7 @@ export default async function NewReportPage() {
             dan bot Telegram akan mengumumkannya di group.
           </p>
         </form>
-      </main>
-    </div>
+            </div>
+    </AppShell>
   );
 }

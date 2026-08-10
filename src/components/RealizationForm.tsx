@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import ConfirmButton from "./ConfirmButton";
 
 export default function RealizationForm({ programId, territoryId }: { programId: string; territoryId: string }) {
   const supabase = createClient();
@@ -11,7 +12,6 @@ export default function RealizationForm({ programId, territoryId }: { programId:
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
   const [note, setNote] = useState("");
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function uploadOne(file: File, folder: string) {
@@ -24,8 +24,7 @@ export default function RealizationForm({ programId, territoryId }: { programId:
     return json.url as string;
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit() {
     setError(null);
 
     if (!excelFile && !receiptFile && photoFiles.length === 0) {
@@ -33,7 +32,6 @@ export default function RealizationForm({ programId, territoryId }: { programId:
       return;
     }
 
-    setLoading(true);
     try {
       const excel_file_url = excelFile ? await uploadOne(excelFile, "realisasi-excel") : null;
       const receipt_pdf_url = receiptFile ? await uploadOne(receiptFile, "realisasi-tanda-terima") : null;
@@ -60,13 +58,11 @@ export default function RealizationForm({ programId, territoryId }: { programId:
       router.push(`/programs/${programId}`);
     } catch (err: any) {
       setError(err.message);
-    } finally {
-      setLoading(false);
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="card space-y-4">
+    <div className="card space-y-4">
       <div>
         <label className="text-sm text-ink-dim block mb-1">Excel Realisasi</label>
         <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => setExcelFile(e.target.files?.[0] ?? null)}
@@ -89,9 +85,15 @@ export default function RealizationForm({ programId, territoryId }: { programId:
 
       {error && <p className="text-signal-red text-sm">{error}</p>}
 
-      <button type="submit" disabled={loading} className="btn-primary w-full">
-        {loading ? "Mengupload..." : "Kirim Bukti Realisasi"}
-      </button>
-    </form>
+      <ConfirmButton
+        title="Kirim bukti realisasi ini?"
+        description="Setelah dikirim, status wilayah ini akan berubah jadi 'submitted' dan menunggu persetujuan RMDM/MDM."
+        confirmLabel="Ya, kirim"
+        onConfirm={handleSubmit}
+        className="btn-primary w-full"
+      >
+        Kirim Bukti Realisasi
+      </ConfirmButton>
+    </div>
   );
 }

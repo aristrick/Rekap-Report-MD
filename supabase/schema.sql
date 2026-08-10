@@ -63,6 +63,7 @@ create table if not exists territories (
 create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text not null,
+  email text,
   role role_level not null,
   region_id uuid references regions(id) on delete set null,
   territory_id uuid references territories(id) on delete set null,
@@ -123,6 +124,8 @@ create table if not exists report_submissions (
   submitted_at timestamptz,
   telegram_file_id text,               -- file_id dari Telegram (dokumen/foto)
   telegram_message_id text,            -- id pesan di group, untuk audit/link
+  file_url text,                       -- url file kalau MDS upload langsung lewat web (bukan Telegram)
+  file_name text,                      -- nama asli file yang diupload lewat web
   note text,
   created_at timestamptz not null default now(),
   unique (template_id, territory_id)

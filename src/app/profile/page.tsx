@@ -1,6 +1,6 @@
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import Navbar from "@/components/Navbar";
+import AppShell from "@/components/AppShell";
 import { redirect } from "next/navigation";
 
 async function saveTelegramId(formData: FormData) {
@@ -18,9 +18,8 @@ export default async function ProfilePage() {
   const profile: any = await requireProfile();
 
   return (
-    <div>
-      <Navbar profile={profile} />
-      <main className="max-w-md mx-auto px-5 py-8">
+    <AppShell profile={profile}>
+      <div className="max-w-md mx-auto px-5 py-8">
         <p className="label-eyebrow mb-1">Akun</p>
         <h1 className="font-display text-2xl font-bold mb-6">Profil Saya</h1>
 
@@ -40,7 +39,7 @@ export default async function ProfilePage() {
           </div>
           <button type="submit" className="btn-primary w-full">Simpan</button>
         </form>
-      </main>
-    </div>
+            </div>
+    </AppShell>
   );
 }

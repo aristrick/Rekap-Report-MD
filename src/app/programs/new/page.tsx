@@ -1,6 +1,6 @@
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import Navbar from "@/components/Navbar";
+import AppShell from "@/components/AppShell";
 import ProgramForm from "@/components/ProgramForm";
 
 export default async function NewProgramPage() {
@@ -9,9 +9,8 @@ export default async function NewProgramPage() {
   const { data: regions } = await supabase.from("regions").select("id, name").order("name");
 
   return (
-    <div>
-      <Navbar profile={profile} />
-      <main className="max-w-xl mx-auto px-5 py-8">
+    <AppShell profile={profile}>
+      <div className="max-w-xl mx-auto px-5 py-8">
         <p className="label-eyebrow mb-1">Program</p>
         <h1 className="font-display text-2xl font-bold mb-6">Buat Program Baru</h1>
         <ProgramForm
@@ -19,7 +18,7 @@ export default async function NewProgramPage() {
           regions={regions ?? []}
           fixedRegionId={profile.role === "rmdm" ? profile.region_id ?? undefined : undefined}
         />
-      </main>
-    </div>
+            </div>
+    </AppShell>
   );
 }

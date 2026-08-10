@@ -1,46 +1,40 @@
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import Navbar from "@/components/Navbar";
-import InviteUserForm from "@/components/InviteUserForm";
+import AppShell from "@/components/AppShell";
+import AddSubordinateForm from "@/components/AddSubordinateForm";
+import SubordinateList from "@/components/SubordinateList";
 
 export default async function AdminUsersPage() {
-  const profile = await requireRole(["mdm", "rmdm", "mds"]);
+  const profile = await requireRole(["mds"]);
   const supabase = createClient();
 
-  const { data: regions } = await supabase.from("regions").select("id, name").order("name");
-  const { data: territories } = await supabase.from("territories").select("id, name, region_id").order("name");
-  const { data: users } = await supabase
+  const { data: members } = await supabase
     .from("profiles")
-    .select("id, full_name, role, is_active, regions(name), territories(name)")
+    .select("id, full_name, role, is_active")
+    .eq("supervisor_id", profile.id)
     .order("full_name");
 
   return (
-    <div>
-      <Navbar profile={profile} />
-      <main className="max-w-4xl mx-auto px-5 py-8 grid md:grid-cols-[1fr_320px] gap-8">
+    <AppShell profile={profile}>
+      <div className="max-w-2xl mx-auto px-5 py-8 space-y-8">
+        <div>
+          <p className="label-eyebrow mb-1">Wilayah {(profile as any).territories?.name}</p>
+          <h1 className="font-display text-2xl font-bold">Anggota Tim (Admin & TL)</h1>
+          <p className="text-ink-dim text-sm mt-1">
+            Admin dan Team Leader yang kamu buat di sini otomatis mengikuti wilayah kamu.
+          </p>
+        </div>
+
         <section>
-          <p className="label-eyebrow mb-1">Struktur Organisasi</p>
-          <h1 className="font-display text-2xl font-bold mb-6">Anggota Tim</h1>
-          <div className="card divide-y divide-base-line">
-            {(users ?? []).map((u: any) => (
-              <div key={u.id} className="py-3 flex items-center justify-between">
-                <div>
-                  <p className="text-sm">{u.full_name}</p>
-                  <p className="text-xs text-ink-dim font-mono">
-                    {u.role.toUpperCase()} · {u.territories?.name ?? u.regions?.name ?? "Semua wilayah"}
-                  </p>
-                </div>
-                {!u.is_active && <span className="status-pill status-rejected">nonaktif</span>}
-              </div>
-            ))}
-          </div>
+          <h2 className="font-display font-semibold mb-3">Tambah Anggota Baru</h2>
+          <AddSubordinateForm role="mds" />
         </section>
 
         <section>
-          <h2 className="font-display font-semibold mb-3">Undang Anggota Baru</h2>
-          <InviteUserForm role={profile.role as any} regions={regions ?? []} territories={territories ?? []} />
+          <h2 className="font-display font-semibold mb-3">Daftar Anggota</h2>
+          <SubordinateList members={(members ?? []) as any} />
         </section>
-      </main>
-    </div>
+      </div>
+    </AppShell>
   );
 }

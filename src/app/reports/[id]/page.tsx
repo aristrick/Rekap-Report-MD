@@ -1,6 +1,8 @@
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import Navbar from "@/components/Navbar";
+import AppShell from "@/components/AppShell";
+import ReportUploadCell from "@/components/ReportUploadCell";
+import ConfirmSubmitButton from "@/components/ConfirmSubmitButton";
 import { NAMA_BULAN } from "@/lib/telegram";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
@@ -26,7 +28,7 @@ export default async function ReportDetailPage({ params }: { params: { id: strin
 
   const { data: template } = await supabase
     .from("report_templates")
-    .select("id, name, description, period_month, period_year, deadline, regions(name)")
+    .select("id, name, description, period_month, period_year, deadline, region_id, regions(name)")
     .eq("id", params.id)
     .single();
 
@@ -34,70 +36,116 @@ export default async function ReportDetailPage({ params }: { params: { id: strin
 
   const { data: submissions } = await supabase
     .from("report_submissions")
-    .select("id, status, submitted_at, note, territories(id, name), profiles!report_submissions_submitted_by_fkey(full_name)")
+    .select("id, status, submitted_at, file_url, file_name, territories(id, name)")
     .eq("template_id", params.id)
     .order("territories(name)", { ascending: true });
 
+  const territoryIds = (submissions ?? []).map((s: any) => s.territories?.id).filter(Boolean);
+  const { data: assignees } = territoryIds.length
+    ? await supabase
+        .from("profiles")
+        .select("full_name, territory_id")
+        .eq("role", "mds")
+        .in("territory_id", territoryIds)
+    : { data: [] as any[] };
+
+  const assigneeByTerritory: Record<string, string> = {};
+  (assignees ?? []).forEach((a: any) => { assigneeByTerritory[a.territory_id] = a.full_name; });
+
+  const deadlineLabel = new Date(template.deadline).toLocaleDateString("id-ID", {
+    day: "2-digit", month: "short", year: "numeric",
+  });
+
   return (
-    <div>
-      <Navbar profile={profile} />
-      <main className="max-w-4xl mx-auto px-5 py-8">
+    <AppShell profile={profile}>
+      <div className="max-w-5xl mx-auto px-5 py-8">
         <Link href="/reports" className="text-sm text-ink-dim hover:text-ink">← Kembali ke daftar laporan</Link>
 
-        <div className="mt-4 mb-8">
-          <p className="label-eyebrow mb-1">
-            {NAMA_BULAN[template.period_month - 1]} {template.period_year} · {(template as any).regions?.name}
-          </p>
-          <h1 className="font-display text-2xl font-bold">{template.name}</h1>
-          {template.description && <p className="text-ink-dim text-sm mt-1">{template.description}</p>}
-          <p className="text-sm text-signal-amber mt-2 font-mono">
-            Deadline: {new Date(template.deadline).toLocaleString("id-ID")}
-          </p>
+        <div className="mt-4 mb-6 flex items-center gap-3">
+          <span className="text-2xl">📋</span>
+          <div>
+            <p className="label-eyebrow mb-1">
+              {NAMA_BULAN[template.period_month - 1]} {template.period_year} · {(template as any).regions?.name}
+            </p>
+            <h1 className="font-display text-2xl font-bold">{template.name}</h1>
+          </div>
         </div>
+        {template.description && <p className="text-ink-dim text-sm mb-4">{template.description}</p>}
 
-        <div className="card overflow-hidden !p-0">
+        <div className="card overflow-x-auto !p-0">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-ink-dim border-b border-base-line">
+              <tr className="text-left text-ink-dim border-b border-base-line bg-base">
                 <th className="px-4 py-3 font-normal">Wilayah</th>
+                <th className="px-4 py-3 font-normal">Ditugaskan ke</th>
+                <th className="px-4 py-3 font-normal">Deadline</th>
                 <th className="px-4 py-3 font-normal">Status</th>
-                <th className="px-4 py-3 font-normal">Dikirim oleh</th>
-                <th className="px-4 py-3 font-normal">Waktu</th>
+                <th className="px-4 py-3 font-normal">File</th>
                 {canManage && <th className="px-4 py-3 font-normal">Aksi</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-base-line">
-              {(submissions ?? []).map((s: any) => (
-                <tr key={s.id}>
-                  <td className="px-4 py-3">{s.territories?.name}</td>
-                  <td className="px-4 py-3">
-                    <span className={`status-pill status-${s.status}`}>{s.status}</span>
-                  </td>
-                  <td className="px-4 py-3 text-ink-dim">{s.profiles?.full_name ?? "-"}</td>
-                  <td className="px-4 py-3 text-ink-dim font-mono text-xs">
-                    {s.submitted_at ? new Date(s.submitted_at).toLocaleString("id-ID") : "-"}
-                  </td>
-                  {canManage && (
+              {(submissions ?? []).map((s: any) => {
+                const canUpload =
+                  ["mds", "admin", "tl"].includes(profile.role) &&
+                  profile.territory_id === s.territories?.id &&
+                  (s.status === "pending" || s.status === "late");
+                return (
+                  <tr key={s.id}>
+                    <td className="px-4 py-3 font-medium">{s.territories?.name}</td>
+                    <td className="px-4 py-3 text-ink-dim">{assigneeByTerritory[s.territories?.id] ?? "-"}</td>
+                    <td className="px-4 py-3 text-ink-dim font-mono text-xs">{deadlineLabel}</td>
                     <td className="px-4 py-3">
-                      <form action={markStatus} className="flex gap-2">
-                        <input type="hidden" name="submission_id" value={s.id} />
-                        <input type="hidden" name="template_id" value={template.id} />
-                        <button name="status" value="approved" className="text-signal-green text-xs hover:underline">Setujui</button>
-                        <button name="status" value="rejected" className="text-signal-red text-xs hover:underline">Tolak</button>
-                      </form>
+                      <span className={`status-pill status-${s.status}`}>{s.status}</span>
                     </td>
-                  )}
-                </tr>
-              ))}
+                    <td className="px-4 py-3">
+                      <ReportUploadCell
+                        submissionId={s.id}
+                        fileUrl={s.file_url}
+                        fileName={s.file_name}
+                        canUpload={canUpload}
+                      />
+                    </td>
+                    {canManage && (
+                      <td className="px-4 py-3">
+                        <div className="flex gap-3">
+                          <form action={markStatus}>
+                            <input type="hidden" name="submission_id" value={s.id} />
+                            <input type="hidden" name="template_id" value={template.id} />
+                            <input type="hidden" name="status" value="approved" />
+                            <ConfirmSubmitButton
+                              title="Setujui laporan ini?"
+                              className="text-signal-green text-xs hover:underline"
+                            >
+                              Setujui
+                            </ConfirmSubmitButton>
+                          </form>
+                          <form action={markStatus}>
+                            <input type="hidden" name="submission_id" value={s.id} />
+                            <input type="hidden" name="template_id" value={template.id} />
+                            <input type="hidden" name="status" value="rejected" />
+                            <ConfirmSubmitButton
+                              title="Tolak laporan ini?"
+                              variant="danger"
+                              className="text-signal-red text-xs hover:underline"
+                            >
+                              Tolak
+                            </ConfirmSubmitButton>
+                          </form>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
 
         <p className="text-xs text-ink-dim mt-4">
-          Pengiriman file dilakukan lewat group Telegram wilayah masing-masing. Status di halaman ini
-          diperbarui otomatis oleh bot begitu file diterima.
+          File bisa dikirim lewat group Telegram wilayah (otomatis terdeteksi bot), atau langsung upload di kolom "File" pada baris wilayah kamu.
         </p>
-      </main>
-    </div>
+      </div>
+    </AppShell>
   );
 }

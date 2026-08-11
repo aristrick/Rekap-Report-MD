@@ -51,6 +51,12 @@ function Icon({ name }: { name: string }) {
           <path d="M23 21v-2a4 4 0 00-3-3.87" /><path d="M16 3.13a4 4 0 010 7.75" />
         </svg>
       );
+    case "map":
+      return (
+        <svg {...common}>
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" /><circle cx="12" cy="10" r="3" />
+        </svg>
+      );
     case "telegram":
       return (
         <svg {...common}>
@@ -86,6 +92,7 @@ export default function Sidebar({ profile }: { profile: any }) {
     { href: "/dashboard", label: "Dashboard", icon: "dashboard", show: true },
     { href: "/reports", label: "Laporan Bulanan", icon: "reports", show: true },
     { href: "/programs", label: "Program", icon: "programs", show: true },
+    { href: "/admin/regions", label: "Region & Wilayah", icon: "map", show: profile.role === "mdm" },
     { href: "/admin/rmdm", label: "Kelola RMDM", icon: "rmdm", show: profile.role === "mdm" },
     { href: "/admin/mds", label: "Kelola MDS", icon: "mds", show: canManage },
     { href: "/admin/telegram", label: "Group Telegram", icon: "telegram", show: canManage },
@@ -94,6 +101,7 @@ export default function Sidebar({ profile }: { profile: any }) {
 
   async function handleLogout() {
     await supabase.auth.signOut();
+    sessionStorage.removeItem("rekap_session_active");
     router.push("/login");
     router.refresh();
   }

@@ -122,6 +122,7 @@ create table if not exists report_submissions (
   status submission_status not null default 'pending',
   submitted_by uuid references profiles(id),
   submitted_at timestamptz,
+  assigned_to uuid references profiles(id), -- MDS bisa menugaskan ke Admin/TL tertentu di wilayahnya
   telegram_file_id text,               -- file_id dari Telegram (dokumen/foto)
   telegram_message_id text,            -- id pesan di group, untuk audit/link
   file_url text,                       -- url file kalau MDS upload langsung lewat web (bukan Telegram)
@@ -310,6 +311,12 @@ create policy "report_templates_update" on report_templates for update
     or (auth_role() = 'rmdm' and region_id = auth_region_id())
   );
 
+create policy "report_templates_delete" on report_templates for delete
+  using (
+    auth_role() = 'mdm'
+    or (auth_role() = 'rmdm' and region_id = auth_region_id())
+  );
+
 -- --- REPORT SUBMISSIONS: lihat sesuai scope; submit hanya mds/admin/tl di wilayahnya
 create policy "report_submissions_select" on report_submissions for select
   using (
@@ -341,6 +348,12 @@ create policy "programs_write" on programs for insert
   );
 
 create policy "programs_update" on programs for update
+  using (
+    auth_role() = 'mdm'
+    or (auth_role() = 'rmdm' and region_id = auth_region_id())
+  );
+
+create policy "programs_delete" on programs for delete
   using (
     auth_role() = 'mdm'
     or (auth_role() = 'rmdm' and region_id = auth_region_id())

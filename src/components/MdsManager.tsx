@@ -142,7 +142,23 @@ function MdsRow({ mds, options }: { mds: Mds; options: Territory[] }) {
   const [newPw, setNewPw] = useState("");
   const [saving, setSaving] = useState(false);
   const [territoryId, setTerritoryId] = useState(mds.territory_id ?? "");
+  const [editingName, setEditingName] = useState(false);
+  const [name, setName] = useState(mds.full_name);
+  const [savingName, setSavingName] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function handleSaveName() {
+    setSavingName(true);
+    const res = await fetch(`/api/admin/users/${mds.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ full_name: name }),
+    });
+    const json = await res.json();
+    setSavingName(false);
+    if (json.ok) { setEditingName(false); router.refresh(); }
+    else setError(json.error);
+  }
 
   async function handleReassign() {
     setSaving(true);
@@ -182,7 +198,20 @@ function MdsRow({ mds, options }: { mds: Mds; options: Territory[] }) {
     <div className="card">
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <p className="font-medium">{mds.full_name}</p>
+          {editingName ? (
+            <div className="flex items-center gap-2 mb-1">
+              <input value={name} onChange={(e) => setName(e.target.value)} className="input-field !py-1 text-sm w-48" />
+              <button onClick={handleSaveName} disabled={savingName} className="text-signal-green text-xs">
+                {savingName ? <Spinner size={12} /> : "Simpan"}
+              </button>
+              <button onClick={() => { setEditingName(false); setName(mds.full_name); }} className="text-ink-dim text-xs">Batal</button>
+            </div>
+          ) : (
+            <p className="font-medium">
+              {mds.full_name}{" "}
+              <button onClick={() => setEditingName(true)} className="text-signal-amber text-xs hover:underline ml-1">Edit</button>
+            </p>
+          )}
           <p className="text-xs text-ink-dim">{mds.email}</p>
           <p className="text-xs text-ink-dim font-mono mt-1">{mds.territory_name} — {mds.region_name}</p>
         </div>

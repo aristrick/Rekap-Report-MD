@@ -1,16 +1,25 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-export default function LoginPage() {
+const SESSION_FLAG_KEY = "rekap_session_active";
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get("timeout") === "1") {
+      setError("Sesi kamu berakhir karena 30 menit tidak ada aktivitas. Silakan masuk lagi.");
+    }
+  }, [searchParams]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -24,6 +33,10 @@ export default function LoginPage() {
       setLoading(false);
       return;
     }
+
+    // Tandai sesi ini aktif untuk tab/browser saat ini. sessionStorage otomatis
+    // hilang saat tab/window ditutup, sehingga saat dibuka lagi wajib login ulang.
+    sessionStorage.setItem(SESSION_FLAG_KEY, "1");
 
     router.push("/dashboard");
     router.refresh();
@@ -75,5 +88,13 @@ export default function LoginPage() {
         </p>
       </div>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }

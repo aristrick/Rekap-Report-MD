@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import AppShell from "@/components/AppShell";
 import ReportUploadCell from "@/components/ReportUploadCell";
 import ConfirmSubmitButton from "@/components/ConfirmSubmitButton";
+import AssignSelect from "@/components/AssignSelect";
 import { NAMA_BULAN } from "@/lib/telegram";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
@@ -36,7 +37,7 @@ export default async function ReportDetailPage({ params }: { params: { id: strin
 
   const { data: submissions } = await supabase
     .from("report_submissions")
-    .select("id, status, submitted_at, file_url, file_name, territories(id, name)")
+    .select("id, status, submitted_at, file_url, file_name, assigned_to, territories(id, name)")
     .eq("template_id", params.id)
     .order("territories(name)", { ascending: true });
 
@@ -44,13 +45,27 @@ export default async function ReportDetailPage({ params }: { params: { id: strin
   const { data: assignees } = territoryIds.length
     ? await supabase
         .from("profiles")
-        .select("full_name, territory_id")
+        .select("id, full_name, territory_id")
         .eq("role", "mds")
         .in("territory_id", territoryIds)
     : { data: [] as any[] };
 
   const assigneeByTerritory: Record<string, string> = {};
   (assignees ?? []).forEach((a: any) => { assigneeByTerritory[a.territory_id] = a.full_name; });
+
+  // Anggota (Admin/TL) di wilayah MDS yang sedang login, untuk dropdown penugasan
+  const { data: myMembers } = profile.role === "mds"
+    ? await supabase.from("profiles").select("id, full_name").eq("supervisor_id", profile.id)
+    : { data: [] as any[] };
+
+  // Nama untuk semua submission yang sudah ditugaskan (supaya MDM/RMDM juga bisa lihat)
+  const assignedToIds = [...new Set((submissions ?? []).map((s: any) => s.assigned_to).filter(Boolean))];
+  const { data: assignedProfiles } = assignedToIds.length
+    ? await supabase.from("profiles").select("id, full_name").in("id", assignedToIds)
+    : { data: [] as any[] };
+
+  const assignedNames: Record<string, string> = {};
+  (assignedProfiles ?? []).forEach((m: any) => { assignedNames[m.id] = m.full_name; });
 
   const deadlineLabel = new Date(template.deadline).toLocaleDateString("id-ID", {
     day: "2-digit", month: "short", year: "numeric",
@@ -90,10 +105,21 @@ export default async function ReportDetailPage({ params }: { params: { id: strin
                   ["mds", "admin", "tl"].includes(profile.role) &&
                   profile.territory_id === s.territories?.id &&
                   (s.status === "pending" || s.status === "late");
+                const isMyTerritoryAsMds = profile.role === "mds" && profile.territory_id === s.territories?.id;
                 return (
                   <tr key={s.id}>
                     <td className="px-4 py-3 font-medium">{s.territories?.name}</td>
-                    <td className="px-4 py-3 text-ink-dim">{assigneeByTerritory[s.territories?.id] ?? "-"}</td>
+                    <td className="px-4 py-3 text-ink-dim">
+                      {isMyTerritoryAsMds ? (
+                        <AssignSelect
+                          submissionId={s.id}
+                          currentAssignee={s.assigned_to}
+                          members={myMembers ?? []}
+                        />
+                      ) : (
+                        (s.assigned_to && assignedNames[s.assigned_to]) || assigneeByTerritory[s.territories?.id] || "-"
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-ink-dim font-mono text-xs">{deadlineLabel}</td>
                     <td className="px-4 py-3">
                       <span className={`status-pill status-${s.status}`}>{s.status}</span>

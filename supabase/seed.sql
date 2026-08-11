@@ -19,7 +19,7 @@ union all
 select id, 'BOGOR', 'Bogor' from regions where code = 'RMDM31'
 union all
 select id, 'SELATAN', 'Jakarta Selatan' from regions where code = 'RMDM32'
-on conflict (region_id, code) do nothing;
+on conflict (code) do nothing;
 
 -- Catatan: baris di atas hanya membuat region & wilayah.
 -- Akun user (profiles) TIDAK dibuat lewat SQL karena harus terhubung ke

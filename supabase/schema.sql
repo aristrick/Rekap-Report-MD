@@ -46,11 +46,12 @@ create table if not exists regions (
 -- ---------------------------------------------------------------------
 create table if not exists territories (
   id uuid primary key default uuid_generate_v4(),
-  region_id uuid not null references regions(id) on delete cascade,
+  region_id uuid references regions(id) on delete cascade, -- nullable: cabang bisa dibuat dulu sebelum ditugaskan ke region
   code text not null,                 -- contoh: 'BOGOR'
   name text not null,                 -- contoh: 'Bogor'
+  address text,                       -- alamat cabang, untuk referensi RMDM/MDS
   created_at timestamptz not null default now(),
-  unique (region_id, code)
+  unique (code)
 );
 
 -- ---------------------------------------------------------------------
@@ -241,16 +242,17 @@ create policy "regions_write_mdm" on regions for all
   using (auth_role() = 'mdm')
   with check (auth_role() = 'mdm');
 
--- --- TERRITORIES: mdm lihat semua, rmdm/mds/admin/tl lihat sesuai region-nya
+-- --- TERRITORIES: mdm kelola master data (semua operasi); rmdm/mds/admin/tl hanya lihat sesuai scope
 create policy "territories_select" on territories for select
   using (
     auth_role() = 'mdm'
     or region_id = auth_region_id()
+    or id = auth_territory_id()
   );
 
 create policy "territories_write" on territories for all
-  using (auth_role() = 'mdm' or (auth_role() = 'rmdm' and region_id = auth_region_id()))
-  with check (auth_role() = 'mdm' or (auth_role() = 'rmdm' and region_id = auth_region_id()));
+  using (auth_role() = 'mdm')
+  with check (auth_role() = 'mdm');
 
 -- --- PROFILES: user bisa lihat dirinya sendiri; mdm lihat semua;
 --     rmdm lihat semua profile di regionnya; mds lihat admin/tl di wilayahnya

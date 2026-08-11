@@ -1,12 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import ConfirmButton from "./ConfirmButton";
 import Spinner from "./Spinner";
 
-interface Territory { id: string; code: string; name: string; region_id: string }
+interface Territory { id: string; code: string; name: string; region_id: string | null }
 interface Region { id: string; code: string; name: string }
 interface Mds {
   id: string;
@@ -18,7 +16,7 @@ interface Mds {
 }
 
 export default function MdsManager({
-  mdsList,
+  mdsList: initialMdsList,
   regions,
   territories,
   fixedRegionId,
@@ -28,8 +26,7 @@ export default function MdsManager({
   territories: Territory[];
   fixedRegionId?: string;
 }) {
-  const supabase = createClient();
-  const router = useRouter();
+  const [mdsList, setMdsList] = useState(initialMdsList);
   const [regionId, setRegionId] = useState(fixedRegionId ?? "");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,6 +43,8 @@ export default function MdsManager({
     const form = new FormData(e.currentTarget);
 
     const territoryId = form.get("territory_id") as string;
+    const territory = territories.find((t) => t.id === territoryId);
+    const region = regions.find((r) => r.id === regionId);
     const fullName = form.get("full_name") as string;
     const email = form.get("email") as string;
     const password = form.get("password") as string;
@@ -62,8 +61,16 @@ export default function MdsManager({
       const json = await res.json();
       if (!json.ok) throw new Error(json.error);
 
+      setMdsList((prev) => [
+        ...prev,
+        {
+          id: json.id, full_name: fullName, email,
+          territory_id: territoryId,
+          territory_name: territory?.name ?? "-",
+          region_name: region?.name ?? "-",
+        },
+      ]);
       (e.target as HTMLFormElement).reset();
-      router.refresh();
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -71,12 +78,20 @@ export default function MdsManager({
     }
   }
 
+  function handleDeleted(id: string) {
+    setMdsList((prev) => prev.filter((m) => m.id !== id));
+  }
+
+  function handleUpdated(id: string, patch: Partial<Mds>) {
+    setMdsList((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+  }
+
   return (
     <div className="space-y-8">
       <section>
         <h2 className="font-display font-semibold mb-3">Tambah MDS Baru</h2>
         <p className="text-xs text-ink-dim mb-3">
-          Pilih wilayah yang sudah dibuat RMDM di halaman Kelola RMDM, lalu buat akun login MDS untuk wilayah itu.
+          Pilih wilayah yang sudah ditugaskan ke region ini (lewat halaman Region &amp; Wilayah), lalu buat akun login MDS.
         </p>
         <form onSubmit={handleCreate} className="card grid sm:grid-cols-2 gap-4">
           {!fixedRegionId && (
@@ -95,7 +110,9 @@ export default function MdsManager({
               {availableTerritories.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
             {regionId && availableTerritories.length === 0 && (
-              <p className="text-xs text-ink-dim mt-1">Semua wilayah di region ini sudah punya MDS.</p>
+              <p className="text-xs text-ink-dim mt-1">
+                Belum ada wilayah tersedia. Tugaskan wilayah ke region ini dulu di halaman Region &amp; Wilayah.
+              </p>
             )}
           </div>
           <div>
@@ -128,6 +145,8 @@ export default function MdsManager({
               options={territories.filter(
                 (t) => !assignedTerritoryIds.has(t.id) || t.id === m.territory_id
               )}
+              onDeleted={() => handleDeleted(m.id)}
+              onUpdated={(patch) => handleUpdated(m.id, patch)}
             />
           ))}
         </div>
@@ -136,8 +155,17 @@ export default function MdsManager({
   );
 }
 
-function MdsRow({ mds, options }: { mds: Mds; options: Territory[] }) {
-  const router = useRouter();
+function MdsRow({
+  mds,
+  options,
+  onDeleted,
+  onUpdated,
+}: {
+  mds: Mds;
+  options: Territory[];
+  onDeleted: () => void;
+  onUpdated: (patch: Partial<Mds>) => void;
+}) {
   const [showPw, setShowPw] = useState(false);
   const [newPw, setNewPw] = useState("");
   const [saving, setSaving] = useState(false);
@@ -156,7 +184,7 @@ function MdsRow({ mds, options }: { mds: Mds; options: Territory[] }) {
     });
     const json = await res.json();
     setSavingName(false);
-    if (json.ok) { setEditingName(false); router.refresh(); }
+    if (json.ok) { setEditingName(false); onUpdated({ full_name: name }); }
     else setError(json.error);
   }
 
@@ -169,8 +197,12 @@ function MdsRow({ mds, options }: { mds: Mds; options: Territory[] }) {
     });
     const json = await res.json();
     setSaving(false);
-    if (json.ok) router.refresh();
-    else setError(json.error);
+    if (json.ok) {
+      const territory = options.find((t) => t.id === territoryId);
+      onUpdated({ territory_id: territoryId, territory_name: territory?.name ?? mds.territory_name });
+    } else {
+      setError(json.error);
+    }
   }
 
   async function handleResetPassword() {
@@ -190,7 +222,7 @@ function MdsRow({ mds, options }: { mds: Mds; options: Territory[] }) {
   async function handleDelete() {
     const res = await fetch(`/api/admin/users/${mds.id}`, { method: "DELETE" });
     const json = await res.json();
-    if (json.ok) router.refresh();
+    if (json.ok) onDeleted();
     else setError(json.error);
   }
 

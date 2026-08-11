@@ -1,12 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
-import ConfirmButton from "./ConfirmButton";
 import Spinner from "./Spinner";
+import ConfirmButton from "./ConfirmButton";
 
-interface Territory { id: string; code: string; name: string; region_id: string }
+interface Territory { id: string; code: string; name: string; region_id: string | null }
+interface Region { id: string; code: string; name: string }
 interface Rmdm {
   id: string;
   full_name: string;
@@ -16,9 +15,17 @@ interface Rmdm {
   region_name: string;
 }
 
-export default function RmdmManager({ rmdmList, territories }: { rmdmList: Rmdm[]; territories: Territory[] }) {
-  const supabase = createClient();
-  const router = useRouter();
+export default function RmdmManager({
+  rmdmList: initialRmdmList,
+  territories,
+  availableRegions,
+}: {
+  rmdmList: Rmdm[];
+  territories: Territory[];
+  availableRegions: Region[]; // region yang belum punya RMDM
+}) {
+  const [rmdmList, setRmdmList] = useState(initialRmdmList);
+  const [regionsLeft, setRegionsLeft] = useState(availableRegions);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,34 +35,40 @@ export default function RmdmManager({ rmdmList, territories }: { rmdmList: Rmdm[
     setCreating(true);
     const form = new FormData(e.currentTarget);
 
-    const regionCode = (form.get("region_code") as string).trim();
-    const regionName = (form.get("region_name") as string).trim();
+    const regionId = form.get("region_id") as string;
+    const region = regionsLeft.find((r) => r.id === regionId);
     const fullName = form.get("full_name") as string;
     const email = form.get("email") as string;
     const password = form.get("password") as string;
 
-    try {
-      const { data: region, error: regionErr } = await supabase
-        .from("regions")
-        .insert({ code: regionCode, name: regionName })
-        .select("id")
-        .single();
-      if (regionErr || !region) throw new Error(regionErr?.message ?? "Gagal membuat region");
+    if (!region) { setError("Pilih region terlebih dahulu."); setCreating(false); return; }
 
+    try {
       const res = await fetch("/api/admin/create-user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, full_name: fullName, role: "rmdm", region_id: region.id }),
+        body: JSON.stringify({ email, password, full_name: fullName, role: "rmdm", region_id: regionId }),
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error);
 
+      setRmdmList((prev) => [
+        ...prev,
+        { id: json.id, full_name: fullName, email, region_id: regionId, region_code: region.code, region_name: region.name },
+      ]);
+      setRegionsLeft((prev) => prev.filter((r) => r.id !== regionId));
       (e.target as HTMLFormElement).reset();
-      router.refresh();
     } catch (err: any) {
       setError(err.message);
     } finally {
       setCreating(false);
+    }
+  }
+
+  function handleDeleted(rmdm: Rmdm) {
+    setRmdmList((prev) => prev.filter((r) => r.id !== rmdm.id));
+    if (rmdm.region_id) {
+      setRegionsLeft((prev) => [...prev, { id: rmdm.region_id!, code: rmdm.region_code, name: rmdm.region_name }]);
     }
   }
 
@@ -64,16 +77,20 @@ export default function RmdmManager({ rmdmList, territories }: { rmdmList: Rmdm[
       <section>
         <h2 className="font-display font-semibold mb-3">Tambah RMDM Baru</h2>
         <p className="text-xs text-ink-dim mb-3">
-          Ini akan membuat region baru sekaligus akun login untuk RMDM-nya dalam satu langkah.
+          Pilih region yang sudah dibuat di halaman <span className="text-signal-amber">Region &amp; Wilayah</span>, lalu buat akun login RMDM untuk region itu.
         </p>
         <form onSubmit={handleCreate} className="card grid sm:grid-cols-2 gap-4">
-          <div>
-            <label className="text-xs text-ink-dim block mb-1">Kode Region</label>
-            <input name="region_code" required placeholder="RMDM31" className="input-field" />
-          </div>
-          <div>
-            <label className="text-xs text-ink-dim block mb-1">Nama Region</label>
-            <input name="region_name" required placeholder="Region 31 - Jakarta Timur" className="input-field" />
+          <div className="sm:col-span-2">
+            <label className="text-xs text-ink-dim block mb-1">Region</label>
+            <select name="region_id" required className="input-field" disabled={regionsLeft.length === 0}>
+              <option value="">{regionsLeft.length === 0 ? "Semua region sudah punya RMDM" : "Pilih region"}</option>
+              {regionsLeft.map((r) => <option key={r.id} value={r.id}>{r.code} — {r.name}</option>)}
+            </select>
+            {regionsLeft.length === 0 && (
+              <p className="text-xs text-ink-dim mt-1">
+                Buat region baru dulu di halaman Region &amp; Wilayah.
+              </p>
+            )}
           </div>
           <div>
             <label className="text-xs text-ink-dim block mb-1">Nama RMDM</label>
@@ -88,7 +105,7 @@ export default function RmdmManager({ rmdmList, territories }: { rmdmList: Rmdm[
             <input name="password" type="text" required minLength={6} placeholder="Minimal 6 karakter" className="input-field" />
           </div>
           {error && <p className="text-signal-red text-sm sm:col-span-2">{error}</p>}
-          <button disabled={creating} className="btn-primary sm:col-span-2 flex items-center justify-center gap-2">
+          <button disabled={creating || regionsLeft.length === 0} className="btn-primary sm:col-span-2 flex items-center justify-center gap-2">
             {creating && <Spinner size={14} />} Buat RMDM
           </button>
         </form>
@@ -103,6 +120,8 @@ export default function RmdmManager({ rmdmList, territories }: { rmdmList: Rmdm[
               key={r.id}
               rmdm={r}
               territories={territories.filter((t) => t.region_id === r.region_id)}
+              onDeleted={() => handleDeleted(r)}
+              setRmdmList={setRmdmList}
             />
           ))}
         </div>
@@ -111,11 +130,19 @@ export default function RmdmManager({ rmdmList, territories }: { rmdmList: Rmdm[
   );
 }
 
-function RmdmCard({ rmdm, territories }: { rmdm: Rmdm; territories: Territory[] }) {
-  const supabase = createClient();
-  const router = useRouter();
-  const [showAddTerritory, setShowAddTerritory] = useState(false);
+function RmdmCard({
+  rmdm,
+  territories,
+  onDeleted,
+  setRmdmList,
+}: {
+  rmdm: Rmdm;
+  territories: Territory[];
+  onDeleted: () => void;
+  setRmdmList: React.Dispatch<React.SetStateAction<Rmdm[]>>;
+}) {
   const [savingPw, setSavingPw] = useState(false);
+  const [showPw, setShowPw] = useState(false);
   const [newPw, setNewPw] = useState("");
   const [editingName, setEditingName] = useState(false);
   const [name, setName] = useState(rmdm.full_name);
@@ -131,34 +158,18 @@ function RmdmCard({ rmdm, territories }: { rmdm: Rmdm; territories: Territory[] 
     });
     const json = await res.json();
     setSavingName(false);
-    if (json.ok) { setEditingName(false); router.refresh(); }
-    else setError(json.error);
-  }
-
-  async function handleAddTerritory(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const form = new FormData(e.currentTarget);
-    const code = (form.get("code") as string).trim();
-    const name = (form.get("name") as string).trim();
-    const { error } = await supabase.from("territories").insert({ region_id: rmdm.region_id, code, name });
-    if (!error) {
-      (e.target as HTMLFormElement).reset();
-      setShowAddTerritory(false);
-      router.refresh();
+    if (json.ok) {
+      setEditingName(false);
+      setRmdmList((prev) => prev.map((r) => (r.id === rmdm.id ? { ...r, full_name: name } : r)));
     } else {
-      setError(error.message);
+      setError(json.error);
     }
-  }
-
-  async function handleRemoveTerritory(id: string) {
-    await supabase.from("territories").delete().eq("id", id);
-    router.refresh();
   }
 
   async function handleDeleteRmdm() {
     const res = await fetch(`/api/admin/users/${rmdm.id}`, { method: "DELETE" });
     const json = await res.json();
-    if (json.ok) router.refresh();
+    if (json.ok) onDeleted();
     else setError(json.error);
   }
 
@@ -172,7 +183,7 @@ function RmdmCard({ rmdm, territories }: { rmdm: Rmdm; territories: Territory[] 
     });
     const json = await res.json();
     setSavingPw(false);
-    if (json.ok) setNewPw("");
+    if (json.ok) { setNewPw(""); setShowPw(false); }
     else setError(json.error);
   }
 
@@ -211,59 +222,36 @@ function RmdmCard({ rmdm, territories }: { rmdm: Rmdm; territories: Territory[] 
 
       <div className="mt-4 pt-4 border-t border-base-line">
         <p className="text-xs text-ink-dim mb-2">Wilayah yang dicover ({territories.length})</p>
-        <div className="flex flex-wrap gap-2 mb-3">
+        <div className="flex flex-wrap gap-2">
           {territories.map((t) => (
-            <span key={t.id} className="inline-flex items-center gap-1.5 text-xs bg-base border border-base-line rounded-sm px-2 py-1">
+            <span key={t.id} className="text-xs bg-base border border-base-line rounded-sm px-2 py-1">
               {t.name}
-              <ConfirmButton
-                title={`Hapus wilayah ${t.name}?`}
-                description="Wilayah ini beserta data laporan/realisasi di dalamnya akan ikut terhapus."
-                confirmLabel="Ya, hapus"
-                variant="danger"
-                onConfirm={() => handleRemoveTerritory(t.id)}
-                className="text-signal-red hover:text-signal-red/70"
-              >
-                ×
-              </ConfirmButton>
             </span>
           ))}
-          {territories.length === 0 && <span className="text-xs text-ink-dim">Belum ada wilayah</span>}
+          {territories.length === 0 && <span className="text-xs text-ink-dim">Belum ada wilayah ditugaskan ke region ini</span>}
         </div>
-
-        {showAddTerritory ? (
-          <form onSubmit={handleAddTerritory} className="flex gap-2 items-end">
-            <div>
-              <label className="text-xs text-ink-dim block mb-1">Kode</label>
-              <input name="code" required placeholder="BOGOR" className="input-field !py-1.5 text-sm w-28" />
-            </div>
-            <div>
-              <label className="text-xs text-ink-dim block mb-1">Nama</label>
-              <input name="name" required placeholder="Bogor" className="input-field !py-1.5 text-sm w-40" />
-            </div>
-            <button className="btn-primary !py-1.5 text-sm">Tambah</button>
-            <button type="button" onClick={() => setShowAddTerritory(false)} className="btn-secondary !py-1.5 text-sm">Batal</button>
-          </form>
-        ) : (
-          <button onClick={() => setShowAddTerritory(true)} className="text-xs text-signal-amber hover:underline">
-            + Tambah wilayah
-          </button>
-        )}
+        <p className="text-xs text-ink-dim mt-2">
+          Tugaskan/lepas wilayah lewat halaman <a href="/admin/regions" className="text-signal-amber hover:underline">Region &amp; Wilayah</a>.
+        </p>
       </div>
 
-      <div className="mt-4 pt-4 border-t border-base-line flex items-end gap-2">
-        <div className="flex-1">
-          <label className="text-xs text-ink-dim block mb-1">Reset Password</label>
-          <input
-            type="text"
-            value={newPw}
-            onChange={(e) => setNewPw(e.target.value)}
-            placeholder="Password baru, minimal 6 karakter"
-            className="input-field !py-1.5 text-sm"
-          />
-        </div>
-        <button onClick={handleResetPassword} disabled={savingPw} className="btn-secondary !py-1.5 text-sm flex items-center gap-2">
-          {savingPw && <Spinner size={12} />} Simpan
-        </button>
+      <div className="mt-4 pt-4 border-t border-base-line">
+        {showPw ? (
+          <div className="flex items-end gap-2">
+            <input
+              type="text"
+              value={newPw}
+              onChange={(e) => setNewPw(e.target.value)}
+              placeholder="Password baru, minimal 6 karakter"
+              className="input-field !py-1.5 text-sm flex-1"
+            />
+            <button onClick={handleResetPassword} disabled={savingPw} className="btn-secondary !py-1.5 text-sm flex items-center gap-2">
+              {savingPw && <Spinner size={12} />} Simpan
+            </button>
+          </div>
+        ) : (
+          <button onClick={() => setShowPw(true)} className="text-xs text-signal-amber hover:underline">Reset Password</button>
+        )}
       </div>
       {error && <p className="text-signal-red text-xs mt-2">{error}</p>}
     </div>

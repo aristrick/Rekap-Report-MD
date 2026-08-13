@@ -52,3 +52,12 @@ export const NAMA_BULAN = [
   "Januari", "Februari", "Maret", "April", "Mei", "Juni",
   "Juli", "Agustus", "September", "Oktober", "November", "Desember",
 ];
+
+// Label status yang lebih ramah untuk ditampilkan di UI (bukan nama kolom database mentah)
+export const STATUS_LABEL: Record<string, string> = {
+  pending: "Menunggu Dikerjakan",
+  submitted: "Menunggu Review",
+  approved: "Disetujui",
+  rejected: "Perlu Revisi",
+  late: "Terlambat",
+};

@@ -378,10 +378,9 @@ create policy "report_template_targets_write" on report_template_targets for ins
 create policy "report_submissions_select" on report_submissions for select
   using (
     auth_role() = 'mdm'
-    or region_id = auth_region_id()
-    or territory_id = auth_territory_id()
+    or (auth_role() = 'rmdm' and region_id = auth_region_id())
     or (
-      territory_id is not null
+      auth_role() = 'rmdm' and territory_id is not null
       and exists (select 1 from territories t where t.id = report_submissions.territory_id and t.region_id = auth_region_id())
     )
     or assigned_to = auth.uid()
@@ -390,8 +389,12 @@ create policy "report_submissions_select" on report_submissions for select
 
 create policy "report_submissions_update" on report_submissions for update
   using (
-    auth_role() in ('mdm', 'rmdm')
-    or territory_id = auth_territory_id()
+    auth_role() = 'mdm'
+    or (auth_role() = 'rmdm' and region_id = auth_region_id())
+    or (
+      auth_role() = 'rmdm' and territory_id is not null
+      and exists (select 1 from territories t where t.id = report_submissions.territory_id and t.region_id = auth_region_id())
+    )
     or assigned_to = auth.uid()
     or exists (select 1 from report_templates rt where rt.id = report_submissions.template_id and rt.created_by = auth.uid())
   );
@@ -484,28 +487,33 @@ begin
 
   if tpl.target_level = 'region' then
     if tpl.target_all then
-      insert into report_submissions (template_id, region_id, status)
-      select p_template_id, r.id, 'pending' from regions r
+      insert into report_submissions (template_id, region_id, assigned_to, status)
+      select p_template_id, r.id, rmdm.id, 'pending'
+      from regions r
+      join profiles rmdm on rmdm.region_id = r.id and rmdm.role = 'rmdm'
       on conflict do nothing;
     else
-      insert into report_submissions (template_id, region_id, status)
-      select p_template_id, tt.region_id, 'pending'
+      insert into report_submissions (template_id, region_id, assigned_to, status)
+      select p_template_id, tt.region_id, rmdm.id, 'pending'
       from report_template_targets tt
+      join profiles rmdm on rmdm.region_id = tt.region_id and rmdm.role = 'rmdm'
       where tt.template_id = p_template_id and tt.region_id is not null
       on conflict do nothing;
     end if;
 
   elsif tpl.target_level = 'territory' then
     if tpl.target_all then
-      insert into report_submissions (template_id, territory_id, status)
-      select p_template_id, ter.id, 'pending'
+      insert into report_submissions (template_id, territory_id, assigned_to, status)
+      select p_template_id, ter.id, mds.id, 'pending'
       from territories ter
+      join profiles mds on mds.territory_id = ter.id and mds.role = 'mds'
       where ter.region_id = creator.region_id
       on conflict do nothing;
     else
-      insert into report_submissions (template_id, territory_id, status)
-      select p_template_id, tt.territory_id, 'pending'
+      insert into report_submissions (template_id, territory_id, assigned_to, status)
+      select p_template_id, tt.territory_id, mds.id, 'pending'
       from report_template_targets tt
+      join profiles mds on mds.territory_id = tt.territory_id and mds.role = 'mds'
       where tt.template_id = p_template_id and tt.territory_id is not null
       on conflict do nothing;
     end if;

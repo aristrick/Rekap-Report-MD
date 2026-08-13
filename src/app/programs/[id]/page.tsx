@@ -2,7 +2,7 @@ import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import AppShell from "@/components/AppShell";
 import ConfirmSubmitButton from "@/components/ConfirmSubmitButton";
-import { NAMA_BULAN } from "@/lib/telegram";
+import { NAMA_BULAN, STATUS_LABEL } from "@/lib/telegram";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 
@@ -103,7 +103,7 @@ export default async function ProgramDetailPage({ params }: { params: { id: stri
                     <td className="px-4 py-3 font-medium">{r.territories?.name}</td>
                     <td className="px-4 py-3 text-ink-dim">{assigneeByTerritory[r.territories?.id] ?? "-"}</td>
                     <td className="px-4 py-3">
-                      <span className={`status-pill status-${r.status}`}>{r.status}</span>
+                      <span className={`status-pill status-${r.status}`}>{STATUS_LABEL[r.status] ?? r.status}</span>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-2 text-xs">

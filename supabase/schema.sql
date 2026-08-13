@@ -29,6 +29,16 @@ exception
   when duplicate_object then null;
 end $$;
 
+-- report_target_level menentukan siapa yang jadi "penerima tugas" saat laporan dibuat:
+--   region    -> dibuat MDM, ditujukan ke RMDM (per region)
+--   territory -> dibuat RMDM, ditujukan ke MDS (per wilayah)
+--   person    -> dibuat MDS, ditujukan ke Admin/TL tertentu di wilayahnya
+do $$ begin
+  create type report_target_level as enum ('region', 'territory', 'person');
+exception
+  when duplicate_object then null;
+end $$;
+
 -- ---------------------------------------------------------------------
 -- 2. REGIONS (contoh: RMDM 31, RMDM 32)
 -- Satu region dipegang oleh satu RMDM (bisa lebih dari satu user RMDM jika perlu)
@@ -102,7 +112,9 @@ create table if not exists report_templates (
   id uuid primary key default uuid_generate_v4(),
   name text not null,                  -- contoh: 'Laporan Kunjungan Toko - Agustus 2026'
   description text,
-  region_id uuid not null references regions(id) on delete cascade,
+  target_level report_target_level not null, -- region (MDM->RMDM) / territory (RMDM->MDS) / person (MDS->Admin/TL)
+  target_all boolean not null default false,  -- true = "semua", false = pilih target tertentu (lihat report_template_targets)
+  region_id uuid references regions(id) on delete cascade, -- konteks region: diisi untuk template tingkat territory/person, kosong untuk tingkat region
   period_month int not null check (period_month between 1 and 12),
   period_year int not null,
   deadline timestamptz not null,
@@ -110,31 +122,56 @@ create table if not exists report_templates (
   created_at timestamptz not null default now()
 );
 
+-- Target spesifik saat target_all = false. Salah satu kolom saja yang diisi
+-- tergantung target_level template-nya (region_id / territory_id / profile_id).
+create table if not exists report_template_targets (
+  id uuid primary key default uuid_generate_v4(),
+  template_id uuid not null references report_templates(id) on delete cascade,
+  region_id uuid references regions(id) on delete cascade,
+  territory_id uuid references territories(id) on delete cascade,
+  profile_id uuid references profiles(id) on delete cascade
+);
+
 -- ---------------------------------------------------------------------
 -- 7. REPORT SUBMISSIONS
--- 1 baris per wilayah per template. Ini yang dipantau MDS/Admin/TL.
--- File laporan disimpan di Telegram (file_id disimpan di sini),
--- bukan di Supabase Storage, sesuai permintaan (hemat storage).
+-- 1 baris per "penerima tugas" per template -- penerimanya bisa berupa
+-- region (RMDM), wilayah (MDS), atau orang tertentu (Admin/TL), tergantung
+-- target_level template induknya. Persis satu dari (region_id, territory_id,
+-- assigned_to) yang terisi untuk menandai siapa penerimanya.
+-- File laporan bisa disimpan di Telegram (file_id) ATAU diupload langsung
+-- lewat web (file_url) -- dua-duanya opsional, salah satu cukup.
 -- ---------------------------------------------------------------------
 create table if not exists report_submissions (
   id uuid primary key default uuid_generate_v4(),
   template_id uuid not null references report_templates(id) on delete cascade,
-  territory_id uuid not null references territories(id) on delete cascade,
+  region_id uuid references regions(id), -- diisi kalau penerima tugas ini RMDM (region-tier)
+  territory_id uuid references territories(id) on delete cascade,
   status submission_status not null default 'pending',
   submitted_by uuid references profiles(id),
   submitted_at timestamptz,
-  assigned_to uuid references profiles(id), -- MDS bisa menugaskan ke Admin/TL tertentu di wilayahnya
+  assigned_to uuid references profiles(id), -- penerima person-tier, ATAU delegasi manual dari MDS ke Admin/TL
   telegram_file_id text,               -- file_id dari Telegram (dokumen/foto)
   telegram_message_id text,            -- id pesan di group, untuk audit/link
-  file_url text,                       -- url file kalau MDS upload langsung lewat web (bukan Telegram)
+  file_url text,                       -- url file kalau diupload langsung lewat web
   file_name text,                      -- nama asli file yang diupload lewat web
-  note text,
-  created_at timestamptz not null default now(),
-  unique (template_id, territory_id)
+  note text,                           -- catatan/pesan dari pengirim ke atasan
+  reviewer_note text,                  -- catatan revisi dari atasan (kalau status 'rejected')
+  created_at timestamptz not null default now()
 );
 
 create index if not exists idx_submissions_template on report_submissions(template_id);
 create index if not exists idx_submissions_territory on report_submissions(territory_id);
+create index if not exists idx_submissions_region on report_submissions(region_id);
+create index if not exists idx_submissions_assigned_to on report_submissions(assigned_to);
+
+-- Cegah duplikat baris untuk penerima yang sama dalam 1 template, per jenis penerima
+create unique index if not exists uidx_submissions_region
+  on report_submissions(template_id, region_id) where region_id is not null;
+create unique index if not exists uidx_submissions_territory
+  on report_submissions(template_id, territory_id) where territory_id is not null;
+create unique index if not exists uidx_submissions_person
+  on report_submissions(template_id, assigned_to)
+  where region_id is null and territory_id is null and assigned_to is not null;
 
 -- ---------------------------------------------------------------------
 -- 8. PROGRAMS
@@ -142,12 +179,16 @@ create index if not exists idx_submissions_territory on report_submissions(terri
 -- ---------------------------------------------------------------------
 create table if not exists programs (
   id uuid primary key default uuid_generate_v4(),
+  program_number text,                 -- nomor surat/program, contoh: '091/RBM 2/FB-Pst/II/2025'
   name text not null,                  -- nama program
   description text,
-  region_id uuid not null references regions(id) on delete cascade,
+  region_id uuid references regions(id) on delete cascade, -- kosong = berlaku untuk semua region
   letter_file_url text,                -- surat program (PDF), disimpan di Supabase Storage
-  period_month int not null check (period_month between 1 and 12),
-  period_year int not null,
+  period_month int not null check (period_month between 1 and 12),   -- bulan mulai
+  period_year int not null,                                          -- tahun mulai
+  end_month int check (end_month between 1 and 12),                  -- bulan berakhir (opsional)
+  end_year int,                                                      -- tahun berakhir (opsional)
+  territory_all boolean not null default false, -- true = berlaku semua wilayah di region terkait
   created_by uuid not null references profiles(id),
   created_at timestamptz not null default now()
 );
@@ -294,54 +335,81 @@ create policy "telegram_groups_write" on telegram_groups for all
   using (auth_role() in ('mdm', 'rmdm'))
   with check (auth_role() in ('mdm', 'rmdm'));
 
--- --- REPORT TEMPLATES: hanya rmdm/mdm yang membuat; semua di region terkait bisa lihat
+-- --- REPORT TEMPLATES: mdm bikin tingkat region; rmdm bikin tingkat territory
+--     (regionnya sendiri); mds bikin tingkat person (untuk Admin/TL-nya).
+--     Select dibuka untuk semua yang login -- detail sensitif ada di report_submissions.
 create policy "report_templates_select" on report_templates for select
-  using (
-    auth_role() = 'mdm'
-    or region_id = auth_region_id()
-  );
+  using (auth.role() = 'authenticated');
 
 create policy "report_templates_write" on report_templates for insert
   with check (
-    auth_role() = 'mdm'
-    or (auth_role() = 'rmdm' and region_id = auth_region_id())
+    (auth_role() = 'mdm' and target_level = 'region')
+    or (auth_role() = 'rmdm' and target_level = 'territory')
+    or (auth_role() = 'mds' and target_level = 'person')
   );
 
 create policy "report_templates_update" on report_templates for update
   using (
     auth_role() = 'mdm'
-    or (auth_role() = 'rmdm' and region_id = auth_region_id())
+    or (auth_role() = 'rmdm' and created_by = auth.uid())
+    or (auth_role() = 'mds' and created_by = auth.uid())
   );
 
 create policy "report_templates_delete" on report_templates for delete
   using (
     auth_role() = 'mdm'
-    or (auth_role() = 'rmdm' and region_id = auth_region_id())
+    or (auth_role() = 'rmdm' and created_by = auth.uid())
+    or (auth_role() = 'mds' and created_by = auth.uid())
   );
 
--- --- REPORT SUBMISSIONS: lihat sesuai scope; submit hanya mds/admin/tl di wilayahnya
+-- --- REPORT TEMPLATE TARGETS: dibuat bersamaan dengan template-nya oleh pembuat yang sama
+create policy "report_template_targets_select" on report_template_targets for select
+  using (auth.role() = 'authenticated');
+
+create policy "report_template_targets_write" on report_template_targets for insert
+  with check (
+    exists (select 1 from report_templates rt where rt.id = template_id and rt.created_by = auth.uid())
+  );
+
+-- --- REPORT SUBMISSIONS: lihat/update sesuai posisi -- MDM semua, RMDM
+--     region-nya (baik baris untuk dirinya sendiri maupun untuk MDS di
+--     bawahnya), MDS/Admin/TL wilayahnya sendiri atau yang ditugaskan
+--     langsung ke mereka (assigned_to).
 create policy "report_submissions_select" on report_submissions for select
   using (
     auth_role() = 'mdm'
-    or exists (
-      select 1 from territories t
-      where t.id = report_submissions.territory_id
-      and (t.region_id = auth_region_id() or t.id = auth_territory_id())
+    or region_id = auth_region_id()
+    or territory_id = auth_territory_id()
+    or (
+      territory_id is not null
+      and exists (select 1 from territories t where t.id = report_submissions.territory_id and t.region_id = auth_region_id())
     )
+    or assigned_to = auth.uid()
+    or exists (select 1 from report_templates rt where rt.id = report_submissions.template_id and rt.created_by = auth.uid())
   );
 
 create policy "report_submissions_update" on report_submissions for update
   using (
     auth_role() in ('mdm', 'rmdm')
     or territory_id = auth_territory_id()
+    or assigned_to = auth.uid()
+    or exists (select 1 from report_templates rt where rt.id = report_submissions.template_id and rt.created_by = auth.uid())
   );
 
 create policy "report_submissions_insert" on report_submissions for insert
-  with check (auth_role() in ('mdm', 'rmdm'));
+  with check (auth_role() in ('mdm', 'rmdm', 'mds'));
 
--- --- PROGRAMS: dibuat rmdm/mdm; dilihat sesuai scope region
+-- --- PROGRAMS: dibuat rmdm/mdm; region_id kosong = berlaku semua region (khusus MDM)
 create policy "programs_select" on programs for select
-  using (auth_role() = 'mdm' or region_id = auth_region_id());
+  using (
+    auth_role() = 'mdm'
+    or region_id is null
+    or region_id = auth_region_id()
+    or exists (
+      select 1 from program_territories pt
+      where pt.program_id = programs.id and pt.territory_id = auth_territory_id()
+    )
+  );
 
 create policy "programs_write" on programs for insert
   with check (
@@ -352,13 +420,13 @@ create policy "programs_write" on programs for insert
 create policy "programs_update" on programs for update
   using (
     auth_role() = 'mdm'
-    or (auth_role() = 'rmdm' and region_id = auth_region_id())
+    or (auth_role() = 'rmdm' and created_by = auth.uid())
   );
 
 create policy "programs_delete" on programs for delete
   using (
     auth_role() = 'mdm'
-    or (auth_role() = 'rmdm' and region_id = auth_region_id())
+    or (auth_role() = 'rmdm' and created_by = auth.uid())
   );
 
 -- --- PROGRAM TERRITORIES
@@ -397,26 +465,70 @@ create policy "activity_logs_select" on activity_logs for select
   using (auth_role() = 'mdm' or actor_id = auth.uid());
 
 -- =====================================================================
--- 13. TRIGGER: otomatis buat baris report_submissions & program_realizations
--- untuk setiap wilayah terkait saat template/program dibuat
+-- 13. FUNGSI: generate baris report_submissions untuk template laporan
+-- Dipanggil dari aplikasi (bukan trigger otomatis) SETELAH template dan
+-- baris report_template_targets (kalau target_all = false) selesai dibuat.
+-- Ini karena target spesifik baru ada setelah template-nya tersimpan,
+-- jadi tidak bisa pakai trigger AFTER INSERT biasa.
 -- =====================================================================
-create or replace function fn_generate_report_submissions()
-returns trigger
+create or replace function generate_report_submissions(p_template_id uuid)
+returns void
 language plpgsql security definer
 as $$
+declare
+  tpl report_templates%rowtype;
+  creator profiles%rowtype;
 begin
-  insert into report_submissions (template_id, territory_id, status)
-  select new.id, t.id, 'pending'
-  from territories t
-  where t.region_id = new.region_id;
-  return new;
+  select * into tpl from report_templates where id = p_template_id;
+  select * into creator from profiles where id = tpl.created_by;
+
+  if tpl.target_level = 'region' then
+    if tpl.target_all then
+      insert into report_submissions (template_id, region_id, status)
+      select p_template_id, r.id, 'pending' from regions r
+      on conflict do nothing;
+    else
+      insert into report_submissions (template_id, region_id, status)
+      select p_template_id, tt.region_id, 'pending'
+      from report_template_targets tt
+      where tt.template_id = p_template_id and tt.region_id is not null
+      on conflict do nothing;
+    end if;
+
+  elsif tpl.target_level = 'territory' then
+    if tpl.target_all then
+      insert into report_submissions (template_id, territory_id, status)
+      select p_template_id, ter.id, 'pending'
+      from territories ter
+      where ter.region_id = creator.region_id
+      on conflict do nothing;
+    else
+      insert into report_submissions (template_id, territory_id, status)
+      select p_template_id, tt.territory_id, 'pending'
+      from report_template_targets tt
+      where tt.template_id = p_template_id and tt.territory_id is not null
+      on conflict do nothing;
+    end if;
+
+  elsif tpl.target_level = 'person' then
+    if tpl.target_all then
+      insert into report_submissions (template_id, assigned_to, status)
+      select p_template_id, p.id, 'pending'
+      from profiles p
+      where p.supervisor_id = tpl.created_by
+      on conflict do nothing;
+    else
+      insert into report_submissions (template_id, assigned_to, status)
+      select p_template_id, tt.profile_id, 'pending'
+      from report_template_targets tt
+      where tt.template_id = p_template_id and tt.profile_id is not null
+      on conflict do nothing;
+    end if;
+  end if;
 end;
 $$;
 
-drop trigger if exists trg_generate_report_submissions on report_templates;
-create trigger trg_generate_report_submissions
-  after insert on report_templates
-  for each row execute function fn_generate_report_submissions();
+grant execute on function generate_report_submissions(uuid) to authenticated;
 
 create or replace function fn_generate_program_realizations()
 returns trigger

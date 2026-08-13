@@ -12,10 +12,13 @@ async function updateProgram(formData: FormData) {
   const { error } = await supabase
     .from("programs")
     .update({
+      program_number: (formData.get("program_number") as string) || null,
       name: formData.get("name") as string,
       description: formData.get("description") as string,
       period_month: Number(formData.get("period_month")),
       period_year: Number(formData.get("period_year")),
+      end_month: Number(formData.get("end_month")) || null,
+      end_year: Number(formData.get("end_year")) || null,
     })
     .eq("id", id);
 
@@ -31,7 +34,7 @@ export default async function EditProgramPage({ params }: { params: { id: string
 
   const { data: program } = await supabase
     .from("programs")
-    .select("id, name, description, period_month, period_year")
+    .select("id, program_number, name, description, period_month, period_year, end_month, end_year")
     .eq("id", params.id)
     .single();
 
@@ -45,6 +48,10 @@ export default async function EditProgramPage({ params }: { params: { id: string
 
         <form action={updateProgram} className="card space-y-4">
           <input type="hidden" name="id" value={program.id} />
+          <div>
+            <label className="text-sm text-ink-dim block mb-1">Nomor Program (opsional)</label>
+            <input name="program_number" defaultValue={program.program_number ?? ""} className="input-field" />
+          </div>
           <div>
             <label className="text-sm text-ink-dim block mb-1">Nama Program</label>
             <input name="name" required defaultValue={program.name} className="input-field" />
@@ -63,8 +70,21 @@ export default async function EditProgramPage({ params }: { params: { id: string
               </select>
             </div>
             <div>
-              <label className="text-sm text-ink-dim block mb-1">Tahun</label>
+              <label className="text-sm text-ink-dim block mb-1">Tahun Mulai</label>
               <input type="number" name="period_year" defaultValue={program.period_year} className="input-field" />
+            </div>
+            <div>
+              <label className="text-sm text-ink-dim block mb-1">Bulan Berakhir (opsional)</label>
+              <select name="end_month" defaultValue={program.end_month ?? ""} className="input-field">
+                <option value="">- sama seperti mulai -</option>
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-sm text-ink-dim block mb-1">Tahun Berakhir (opsional)</label>
+              <input type="number" name="end_year" defaultValue={program.end_year ?? ""} className="input-field" />
             </div>
           </div>
 

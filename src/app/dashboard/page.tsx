@@ -11,7 +11,7 @@ export default async function DashboardPage() {
   // jadi query di sini tidak perlu filter manual berdasarkan role.
   const { data: submissions } = await supabase
     .from("report_submissions")
-    .select("id, status, territories(name), report_templates(name, deadline)")
+    .select("id, status, territories(name), regions(name), report_templates(name, deadline)")
     .order("created_at", { ascending: false })
     .limit(50);
 
@@ -68,7 +68,7 @@ export default async function DashboardPage() {
               <div key={s.id} className="py-3 flex items-center justify-between">
                 <div>
                   <p className="text-sm">{s.report_templates?.name}</p>
-                  <p className="text-xs text-ink-dim">{s.territories?.name}</p>
+                  <p className="text-xs text-ink-dim">{s.territories?.name ?? s.regions?.name ?? "Ditugaskan langsung"}</p>
                 </div>
                 <span className={`status-pill status-${s.status}`}>{s.status}</span>
               </div>
@@ -96,7 +96,7 @@ export default async function DashboardPage() {
             ))}
           </div>
         </section>
-            </div>
+      </div>
     </AppShell>
   );
 }

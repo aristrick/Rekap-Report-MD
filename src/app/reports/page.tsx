@@ -13,14 +13,20 @@ async function deleteReportTemplate(formData: FormData) {
   redirect("/reports");
 }
 
+const TIER_LABEL: Record<string, string> = {
+  region: "Semua RMDM",
+  territory: "Semua MDS",
+  person: "Admin/TL",
+};
+
 export default async function ReportsPage() {
   const profile = await requireProfile();
   const supabase = createClient();
-  const canManage = profile.role === "mdm" || profile.role === "rmdm";
+  const canCreate = profile.role === "mdm" || profile.role === "rmdm" || profile.role === "mds";
 
   const { data: templates } = await supabase
     .from("report_templates")
-    .select("id, name, period_month, period_year, deadline, regions(name), report_submissions(status)")
+    .select("id, name, period_month, period_year, deadline, target_level, created_by, regions(name), report_submissions(status)")
     .order("created_at", { ascending: false });
 
   return (
@@ -31,7 +37,7 @@ export default async function ReportsPage() {
             <p className="label-eyebrow mb-1">Laporan Bulanan</p>
             <h1 className="font-display text-2xl font-bold">Daftar Laporan</h1>
           </div>
-          {canManage && (
+          {canCreate && (
             <Link href="/reports/new" className="btn-primary">+ Buat Laporan Baru</Link>
           )}
         </div>
@@ -44,20 +50,21 @@ export default async function ReportsPage() {
             const subs = t.report_submissions ?? [];
             const done = subs.filter((s: any) => s.status === "submitted" || s.status === "approved").length;
             const total = subs.length;
+            const canManageThis = profile.role === "mdm" || t.created_by === profile.id;
             return (
               <div key={t.id} className="card flex items-center justify-between hover:border-signal-amber/50 transition">
                 <Link href={`/reports/${t.id}`} className="flex-1 min-w-0">
                   <p className="font-medium">{t.name}</p>
                   <p className="text-xs text-ink-dim mt-1 font-mono">
-                    {NAMA_BULAN[t.period_month - 1]} {t.period_year} · {t.regions?.name} · Deadline {new Date(t.deadline).toLocaleDateString("id-ID")}
+                    {NAMA_BULAN[t.period_month - 1]} {t.period_year} · {t.regions?.name ?? TIER_LABEL[t.target_level]} · Deadline {new Date(t.deadline).toLocaleDateString("id-ID")}
                   </p>
                 </Link>
                 <div className="flex items-center gap-4">
                   <Link href={`/reports/${t.id}`} className="text-right block">
                     <p className="font-display text-xl font-bold">{done}/{total}</p>
-                    <p className="text-xs text-ink-dim">wilayah selesai</p>
+                    <p className="text-xs text-ink-dim">selesai</p>
                   </Link>
-                  {canManage && (
+                  {canManageThis && (
                     <div className="flex flex-col gap-1 items-end">
                       <Link href={`/reports/${t.id}/edit`} className="text-xs text-signal-amber hover:underline">Edit</Link>
                       <form action={deleteReportTemplate}>

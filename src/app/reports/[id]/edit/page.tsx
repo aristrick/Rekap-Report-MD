@@ -27,7 +27,7 @@ async function updateReportTemplate(formData: FormData) {
 }
 
 export default async function EditReportPage({ params }: { params: { id: string } }) {
-  const profile = await requireRole(["mdm", "rmdm"]);
+  const profile = await requireRole(["mdm", "rmdm", "mds"]);
   const supabase = createClient();
 
   const { data: template } = await supabase

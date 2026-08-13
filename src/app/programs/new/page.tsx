@@ -18,7 +18,7 @@ export default async function NewProgramPage() {
           regions={regions ?? []}
           fixedRegionId={profile.role === "rmdm" ? profile.region_id ?? undefined : undefined}
         />
-            </div>
+      </div>
     </AppShell>
   );
 }

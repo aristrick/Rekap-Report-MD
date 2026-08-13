@@ -11,36 +11,53 @@ interface Props {
   fixedRegionId?: string;
 }
 
+interface Territory { id: string; name: string; region_id: string; region_name: string }
+
 export default function ProgramForm({ role, regions, fixedRegionId }: Props) {
   const supabase = createClient();
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
 
-  const [regionId, setRegionId] = useState(fixedRegionId ?? "");
-  const [territories, setTerritories] = useState<{ id: string; name: string }[]>([]);
+  // "" berarti "Semua Region" (hanya bisa dipilih MDM)
+  const [regionScope, setRegionScope] = useState<string>(fixedRegionId ?? (role === "mdm" ? "all" : fixedRegionId ?? ""));
+  const [allTerritories, setAllTerritories] = useState<Territory[]>([]);
   const [selectedTerritories, setSelectedTerritories] = useState<string[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
+  const isAllRegion = role === "mdm" && regionScope === "all";
+  const effectiveRegionId = isAllRegion ? null : regionScope || fixedRegionId || null;
+
   useEffect(() => {
-    if (!regionId) {
-      setTerritories([]);
-      return;
-    }
     supabase
       .from("territories")
-      .select("id, name")
-      .eq("region_id", regionId)
+      .select("id, name, region_id, regions(name)")
       .order("name")
-      .then(({ data }) => setTerritories(data ?? []));
-  }, [regionId]);
+      .then(({ data }) => {
+        setAllTerritories(
+          (data ?? []).map((t: any) => ({ id: t.id, name: t.name, region_id: t.region_id, region_name: t.regions?.name ?? "-" }))
+        );
+      });
+  }, []);
+
+  const visibleTerritories = isAllRegion
+    ? allTerritories
+    : allTerritories.filter((t) => t.region_id === effectiveRegionId);
+
+  function toggleTerritory(id: string) {
+    setSelectedTerritories((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
+  }
+
+  function selectAllVisible() {
+    setSelectedTerritories(visibleTerritories.map((t) => t.id));
+  }
 
   function handlePreSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
-    if (!regionId) return setError("Pilih region terlebih dahulu.");
+    if (role === "mdm" && !regionScope) return setError("Pilih region terlebih dahulu.");
     if (selectedTerritories.length === 0) return setError("Pilih minimal satu wilayah.");
     setConfirmOpen(true);
   }
@@ -50,10 +67,14 @@ export default function ProgramForm({ role, regions, fixedRegionId }: Props) {
     if (!form) return;
     setLoading(true);
     setConfirmOpen(false);
+
+    const program_number = (form.elements.namedItem("program_number") as HTMLInputElement).value;
     const name = (form.elements.namedItem("name") as HTMLInputElement).value;
     const description = (form.elements.namedItem("description") as HTMLTextAreaElement).value;
     const period_month = Number((form.elements.namedItem("period_month") as HTMLSelectElement).value);
     const period_year = Number((form.elements.namedItem("period_year") as HTMLInputElement).value);
+    const end_month = Number((form.elements.namedItem("end_month") as HTMLSelectElement).value);
+    const end_year = Number((form.elements.namedItem("end_year") as HTMLInputElement).value);
 
     let letter_file_url: string | null = null;
     if (file) {
@@ -71,11 +92,19 @@ export default function ProgramForm({ role, regions, fixedRegionId }: Props) {
     }
 
     const { data: { user } } = await supabase.auth.getUser();
+    const territoryAll = selectedTerritories.length === visibleTerritories.length && visibleTerritories.length > 0;
+
     const { data: program, error: insertErr } = await supabase
       .from("programs")
       .insert({
-        name, description, region_id: regionId,
-        period_month, period_year, letter_file_url,
+        program_number: program_number || null,
+        name, description,
+        region_id: effectiveRegionId,
+        period_month, period_year,
+        end_month: end_month || null,
+        end_year: end_year || null,
+        territory_all: territoryAll,
+        letter_file_url,
         created_by: user!.id,
       })
       .select("id")
@@ -99,15 +128,15 @@ export default function ProgramForm({ role, regions, fixedRegionId }: Props) {
     router.push(`/programs/${program.id}`);
   }
 
-  function toggleTerritory(id: string) {
-    setSelectedTerritories((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
-  }
-
   const now = new Date();
 
   return (
     <>
       <form ref={formRef} onSubmit={handlePreSubmit} className="card space-y-4">
+        <div>
+          <label className="text-sm text-ink-dim block mb-1">Nomor Program (opsional)</label>
+          <input name="program_number" className="input-field" placeholder="Contoh: 091/RBM 2/FB-Pst/II/2025" />
+        </div>
         <div>
           <label className="text-sm text-ink-dim block mb-1">Nama Program</label>
           <input name="name" required className="input-field" placeholder="Contoh: Program Diskon Ramadan" />
@@ -120,8 +149,13 @@ export default function ProgramForm({ role, regions, fixedRegionId }: Props) {
         {role === "mdm" ? (
           <div>
             <label className="text-sm text-ink-dim block mb-1">Region</label>
-            <select value={regionId} onChange={(e) => setRegionId(e.target.value)} required className="input-field">
-              <option value="">Pilih region</option>
+            <select
+              value={regionScope}
+              onChange={(e) => { setRegionScope(e.target.value); setSelectedTerritories([]); }}
+              required
+              className="input-field"
+            >
+              <option value="all">Semua Region</option>
               {regions.map((r) => (
                 <option key={r.id} value={r.id}>{r.name}</option>
               ))}
@@ -139,8 +173,21 @@ export default function ProgramForm({ role, regions, fixedRegionId }: Props) {
             </select>
           </div>
           <div>
-            <label className="text-sm text-ink-dim block mb-1">Tahun</label>
+            <label className="text-sm text-ink-dim block mb-1">Tahun Mulai</label>
             <input type="number" name="period_year" defaultValue={now.getFullYear()} className="input-field" />
+          </div>
+          <div>
+            <label className="text-sm text-ink-dim block mb-1">Bulan Berakhir (opsional)</label>
+            <select name="end_month" defaultValue="" className="input-field">
+              <option value="">- sama seperti mulai -</option>
+              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-sm text-ink-dim block mb-1">Tahun Berakhir (opsional)</label>
+            <input type="number" name="end_year" className="input-field" placeholder={String(now.getFullYear())} />
           </div>
         </div>
 
@@ -155,12 +202,21 @@ export default function ProgramForm({ role, regions, fixedRegionId }: Props) {
         </div>
 
         <div>
-          <label className="text-sm text-ink-dim block mb-2">Wilayah yang Menjalankan</label>
-          {territories.length === 0 ? (
-            <p className="text-xs text-ink-dim">Pilih region dulu untuk melihat daftar wilayah.</p>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm text-ink-dim">Wilayah yang Menjalankan</label>
+            {visibleTerritories.length > 0 && (
+              <button type="button" onClick={selectAllVisible} className="text-xs text-signal-amber hover:underline">
+                Pilih Semua ({visibleTerritories.length})
+              </button>
+            )}
+          </div>
+          {visibleTerritories.length === 0 ? (
+            <p className="text-xs text-ink-dim">
+              {role === "mdm" && !regionScope ? "Pilih region dulu untuk melihat daftar wilayah." : "Belum ada wilayah tersedia."}
+            </p>
           ) : (
-            <div className="grid grid-cols-2 gap-2">
-              {territories.map((t) => (
+            <div className="grid grid-cols-2 gap-2 max-h-56 overflow-y-auto border border-base-line rounded p-3">
+              {visibleTerritories.map((t) => (
                 <label key={t.id} className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
@@ -169,6 +225,7 @@ export default function ProgramForm({ role, regions, fixedRegionId }: Props) {
                     className="accent-signal-amber"
                   />
                   {t.name}
+                  {isAllRegion && <span className="text-xs text-ink-dim">({t.region_name})</span>}
                 </label>
               ))}
             </div>

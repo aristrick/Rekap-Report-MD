@@ -20,8 +20,15 @@ export default async function ProgramsPage() {
 
   const { data: programs } = await supabase
     .from("programs")
-    .select("id, name, period_month, period_year, regions(name), program_realizations(status)")
+    .select("id, program_number, name, period_month, period_year, end_month, end_year, regions(name), program_realizations(status)")
     .order("created_at", { ascending: false });
+
+  function periodLabel(p: any) {
+    const start = `${NAMA_BULAN[p.period_month - 1]} ${p.period_year}`;
+    if (!p.end_month || !p.end_year) return start;
+    if (p.end_month === p.period_month && p.end_year === p.period_year) return start;
+    return `${start} — ${NAMA_BULAN[p.end_month - 1]} ${p.end_year}`;
+  }
 
   return (
     <AppShell profile={profile}>
@@ -46,9 +53,10 @@ export default async function ProgramsPage() {
             return (
               <div key={p.id} className="card flex items-center justify-between hover:border-signal-amber/50 transition">
                 <Link href={`/programs/${p.id}`} className="flex-1 min-w-0">
+                  {p.program_number && <p className="text-xs text-signal-amber font-mono mb-0.5">{p.program_number}</p>}
                   <p className="font-medium">{p.name}</p>
                   <p className="text-xs text-ink-dim mt-1 font-mono">
-                    {NAMA_BULAN[p.period_month - 1]} {p.period_year} · {p.regions?.name}
+                    {periodLabel(p)} · {p.regions?.name ?? "Semua Region"}
                   </p>
                 </Link>
                 <div className="flex items-center gap-4">

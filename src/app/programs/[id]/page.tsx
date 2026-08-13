@@ -27,11 +27,18 @@ export default async function ProgramDetailPage({ params }: { params: { id: stri
 
   const { data: program } = await supabase
     .from("programs")
-    .select("id, name, description, period_month, period_year, letter_file_url, regions(name)")
+    .select("id, program_number, name, description, period_month, period_year, end_month, end_year, letter_file_url, regions(name)")
     .eq("id", params.id)
     .single();
 
   if (!program) notFound();
+
+  const periodLabel = (() => {
+    const start = `${NAMA_BULAN[program.period_month - 1]} ${program.period_year}`;
+    if (!program.end_month || !program.end_year) return start;
+    if (program.end_month === program.period_month && program.end_year === program.period_year) return start;
+    return `${start} — ${NAMA_BULAN[program.end_month - 1]} ${program.end_year}`;
+  })();
 
   const { data: realizations } = await supabase
     .from("program_realizations")
@@ -64,8 +71,9 @@ export default async function ProgramDetailPage({ params }: { params: { id: stri
           <span className="text-2xl">📁</span>
           <div>
             <p className="label-eyebrow mb-1">
-              {NAMA_BULAN[program.period_month - 1]} {program.period_year} · {(program as any).regions?.name}
+              {periodLabel} · {(program as any).regions?.name ?? "Semua Region"}
             </p>
+            {program.program_number && <p className="text-xs text-signal-amber font-mono mb-1">{program.program_number}</p>}
             <h1 className="font-display text-2xl font-bold">{program.name}</h1>
           </div>
         </div>
